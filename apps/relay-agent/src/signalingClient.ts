@@ -1,6 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 import type { RelayAgentConfig } from "./config.js";
-import type { RelayAgentRegistration, RelayAgentStatus } from "./types.js";
+import type { RelayAcceptPayload, RelayAgentRegistration, RelayAgentStatus, RelayOfferPayload } from "./types.js";
 
 export class RelayAgentSignalingClient {
   private socket: Socket | null = null;
@@ -38,6 +38,22 @@ export class RelayAgentSignalingClient {
     this.socket.on("connect_error", () => {
       this.onStateChange("disconnected");
       this.stopHeartbeat();
+    });
+
+    this.socket.on("relay:offer", (payload: RelayOfferPayload) => {
+      if (!this.socket?.connected) {
+        return;
+      }
+
+      const acceptPayload: RelayAcceptPayload = {
+        sessionId: payload.sessionId,
+        peerId: this.config.peerId,
+      };
+
+      this.socket.emit("relay:accept", acceptPayload);
+      console.info(
+        `Relay agent accepted session ${payload.sessionId} for requester ${payload.requesterPeerId} targeting ${payload.targetCountryCode}`,
+      );
     });
   }
 

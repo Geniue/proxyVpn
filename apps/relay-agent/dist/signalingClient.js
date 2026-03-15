@@ -33,6 +33,17 @@ export class RelayAgentSignalingClient {
             this.onStateChange("disconnected");
             this.stopHeartbeat();
         });
+        this.socket.on("relay:offer", (payload) => {
+            if (!this.socket?.connected) {
+                return;
+            }
+            const acceptPayload = {
+                sessionId: payload.sessionId,
+                peerId: this.config.peerId,
+            };
+            this.socket.emit("relay:accept", acceptPayload);
+            console.info(`Relay agent accepted session ${payload.sessionId} for requester ${payload.requesterPeerId} targeting ${payload.targetCountryCode}`);
+        });
     }
     stop() {
         this.onStateChange("disconnected");

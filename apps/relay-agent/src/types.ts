@@ -16,6 +16,17 @@ export type RelayAgentRegistration = {
   transport: RelayTransport;
 };
 
+export type RelayOfferPayload = {
+  sessionId: string;
+  requesterPeerId: string;
+  targetCountryCode: string;
+};
+
+export type RelayAcceptPayload = {
+  sessionId: string;
+  peerId: string;
+};
+
 export type RelayAgentStatus = {
   peerId: string;
   countryCode: string;
