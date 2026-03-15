@@ -31,6 +31,15 @@ APP_USER="$(detect_app_user)"
 APP_HOME="$(getent passwd "${APP_USER}" | cut -d: -f6)"
 APP_DIR="${APP_DIR:-${APP_HOME}/proxyVpn}"
 
+run_as_app_user() {
+  if [[ "${APP_USER}" = "root" ]]; then
+    "$@"
+    return
+  fi
+
+  runuser -u "${APP_USER}" -- "$@"
+}
+
 if [[ -z "${COUNTRY_CODE}" || -z "${SIGNALING_URL}" ]]; then
   echo "Usage: bootstrap-ubuntu-relay.sh <COUNTRY_CODE> <SIGNALING_URL>"
   echo "Example: bootstrap-ubuntu-relay.sh SE http://51.20.141.138:3000"
@@ -55,14 +64,16 @@ else
 fi
 
 if [[ ! -d "${APP_DIR}/.git" ]]; then
-  git clone "${REPO_URL}" "${APP_DIR}"
+  run_as_app_user git clone "${REPO_URL}" "${APP_DIR}"
+else
   chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}" || true
 fi
 
 cd "${APP_DIR}"
-git pull --ff-only origin main
-npm ci
-npm run build:relay-agent
+run_as_app_user git config --global --add safe.directory "${APP_DIR}"
+run_as_app_user git pull --ff-only origin main
+run_as_app_user npm ci
+run_as_app_user npm run build:relay-agent
 
 cat > "${APP_DIR}/deploy/relay-agent.env" <<EOF
 RELAY_AGENT_COUNTRY=${COUNTRY_CODE}
