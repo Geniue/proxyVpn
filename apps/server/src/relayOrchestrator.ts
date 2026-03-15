@@ -420,7 +420,17 @@ export class RelayOrchestrator {
     return [
       "#!/bin/bash",
       "set -euxo pipefail",
-      `sudo -u ubuntu bash -lc 'cd /home/ubuntu && if [ ! -d proxyVpn/.git ]; then git clone \"${launchConfig.gitRepoUrl}\" proxyVpn; fi && cd ${launchConfig.appDirectory} && git pull --ff-only origin main || true && chmod +x deploy/bootstrap-ubuntu-relay.sh && ./deploy/bootstrap-ubuntu-relay.sh ${countryCode} ${launchConfig.signalingUrl}'`,
+      "if command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y ca-certificates curl git; elif command -v dnf >/dev/null 2>&1; then dnf install -y ca-certificates curl git; fi",
+      "PRIMARY_USER=root",
+      "if id -u ubuntu >/dev/null 2>&1; then PRIMARY_USER=ubuntu; elif id -u ec2-user >/dev/null 2>&1; then PRIMARY_USER=ec2-user; fi",
+      "PRIMARY_HOME=$(getent passwd \"$PRIMARY_USER\" | cut -d: -f6)",
+      `APP_DIR=\"${launchConfig.appDirectory}\"`,
+      `if [ \"${launchConfig.appDirectory}\" = \"/home/ubuntu/proxyVpn\" ] && [ \"$PRIMARY_USER\" != \"ubuntu\" ]; then APP_DIR=\"${'${PRIMARY_HOME}'}/proxyVpn\"; fi`,
+      "if [ ! -d \"${APP_DIR}/.git\" ]; then git clone \"${launchConfig.gitRepoUrl}\" \"${APP_DIR}\"; chown -R \"$PRIMARY_USER:$PRIMARY_USER\" \"${APP_DIR}\" || true; fi",
+      "cd \"${APP_DIR}\"",
+      "git pull --ff-only origin main || true",
+      "chmod +x deploy/bootstrap-ubuntu-relay.sh",
+      `APP_USER=\"$PRIMARY_USER\" APP_DIR=\"${'${APP_DIR}'}\" ./deploy/bootstrap-ubuntu-relay.sh ${countryCode} ${launchConfig.signalingUrl}`,
     ].join("\n");
   }
 
