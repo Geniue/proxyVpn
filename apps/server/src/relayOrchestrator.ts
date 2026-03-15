@@ -426,7 +426,7 @@ export class RelayOrchestrator {
       "PRIMARY_HOME=$(getent passwd \"$PRIMARY_USER\" | cut -d: -f6)",
       `APP_DIR=\"${launchConfig.appDirectory}\"`,
       `if [ \"${launchConfig.appDirectory}\" = \"/home/ubuntu/proxyVpn\" ] && [ \"$PRIMARY_USER\" != \"ubuntu\" ]; then APP_DIR=\"${'${PRIMARY_HOME}'}/proxyVpn\"; fi`,
-      "if [ ! -d \"${APP_DIR}/.git\" ]; then git clone \"${launchConfig.gitRepoUrl}\" \"${APP_DIR}\"; chown -R \"$PRIMARY_USER:$PRIMARY_USER\" \"${APP_DIR}\" || true; fi",
+      `if [ ! -d "${'${APP_DIR}'}/.git" ]; then git clone "${launchConfig.gitRepoUrl}" "${'${APP_DIR}'}"; chown -R "$PRIMARY_USER:$PRIMARY_USER" "${'${APP_DIR}'}" || true; fi`,
       "cd \"${APP_DIR}\"",
       "git pull --ff-only origin main || true",
       "chmod +x deploy/bootstrap-ubuntu-relay.sh",
