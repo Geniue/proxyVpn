@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: hsl(212 33% 14%);
+  background-color: hsl(40 33% 96%);
+  font-family: Aptos, "Segoe UI Variable", "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 22rem;
+  min-height: 32rem;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}

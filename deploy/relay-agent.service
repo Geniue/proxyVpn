@@ -1,0 +1,15 @@
+[Unit]
+Description=Relay Mesh Relay Agent
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/proxyVpn
+EnvironmentFile=/home/ubuntu/proxyVpn/deploy/relay-agent.env
+ExecStart=/usr/bin/node /home/ubuntu/proxyVpn/apps/relay-agent/dist/index.js
+Restart=always
+RestartSec=5
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target

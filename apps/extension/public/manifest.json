@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Relay Mesh VPN",
+  "description": "P2P VPN extension that routes traffic through active relay peers.",
+  "version": "0.1.0",
+  "permissions": ["proxy", "storage", "notifications"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Relay Mesh VPN",
+    "default_popup": "index.html"
+  }
+}

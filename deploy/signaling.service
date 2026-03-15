@@ -1,0 +1,15 @@
+[Unit]
+Description=Relay Mesh Signaling Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/proxyVpn
+EnvironmentFile=/home/ubuntu/proxyVpn/deploy/signaling.env
+ExecStart=/usr/bin/node /home/ubuntu/proxyVpn/apps/server/dist/index.js
+Restart=always
+RestartSec=5
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+{
+  "name": "proxy-vpn",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:extension": "npm run dev --workspace @proxy-vpn/extension",
+    "build:extension": "npm run build --workspace @proxy-vpn/extension",
+    "typecheck:extension": "npm run typecheck --workspace @proxy-vpn/extension",
+    "dev:server": "npm run dev --workspace @proxy-vpn/server",
+    "build:server": "npm run build --workspace @proxy-vpn/server",
+    "typecheck:server": "npm run typecheck --workspace @proxy-vpn/server",
+    "dev:relay-agent": "npm run dev --workspace @proxy-vpn/relay-agent",
+    "build:relay-agent": "npm run build --workspace @proxy-vpn/relay-agent",
+    "typecheck:relay-agent": "npm run typecheck --workspace @proxy-vpn/relay-agent"
+  }
+}
