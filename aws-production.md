@@ -11,6 +11,22 @@
 - **Relay nodes:** one `t3.micro` per launch country.
 - **Requester browser:** the extension selects a country, requests a match, and then routes traffic through the matched relay transport.
 
+## Multi-Country Rollout
+- The current code can already match and route to multiple countries.
+- To make a country selectable in practice, you must run at least one live relay-agent node in that country.
+- One Sweden node can only provide Sweden egress. It cannot honestly appear as UAE, Germany, Singapore, or the US.
+- The extension should only be expected to work for countries that currently have a live relay in `/peers`.
+
+Recommended first production set:
+- `SE`: `eu-north-1` Stockholm
+- `DE`: `eu-central-1` Frankfurt
+- `AE`: `me-central-1` UAE
+- `SG`: `ap-southeast-1` Singapore
+- `US`: `us-east-1` or `us-west-2`
+
+Important AWS constraint:
+- AWS does not currently offer a Turkey region, so `TR` cannot be a true Turkey exit on AWS alone. For Turkey you need a non-AWS VPS/provider physically located in Turkey.
+
 ## Relay-Agent Environment
 Use these environment variables on each EC2 instance:
 
@@ -54,6 +70,8 @@ That embeds the public signaling URL into the extension background bundle instea
 5. Start the agent with the environment variables above.
 6. Confirm the node appears in `/peers` with `transport.mode: "peer-agent"` and a non-loopback `proxyHost`.
 7. Build the extension with `RELAY_MESH_SIGNALING_URL` pointing at the public signaling server.
+
+For repeatable setup on a new EC2 instance, use [deploy/bootstrap-ubuntu-relay.sh](deploy/bootstrap-ubuntu-relay.sh).
 
 ## Current Limitation
 The repo now supports correct EC2 endpoint advertisement and the extension can route through `peer-agent` transports. The remaining production hardening work is around TLS, authentication, and operational controls rather than basic relay routing.
