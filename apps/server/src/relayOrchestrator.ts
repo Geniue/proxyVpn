@@ -3,6 +3,8 @@ import {
   EC2Client,
   RunInstancesCommand,
   StartInstancesCommand,
+  StopInstancesCommand,
+  TerminateInstancesCommand,
   type Filter,
   type Instance,
   type RunInstancesCommandInput,
@@ -36,6 +38,27 @@ export type EnsureRelayResponse = {
   reusedExistingRelay: boolean;
 };
 
+export type ReleaseRelayRequest = {
+  countryCode: string;
+  leaseId: string;
+};
+
+export type ReleaseRelayResponse = {
+  ok: true;
+  status: "released" | "idle";
+  countryCode: SupportedCountryCode;
+  message: string;
+  activeLeaseCount: number;
+};
+
+export type RelayCleanupAction = {
+  countryCode: SupportedCountryCode;
+  region: string;
+  action: "stopped" | "terminated" | "skipped";
+  instanceIds: string[];
+  message: string;
+};
+
 type LaunchConfig = {
   region: string;
   instanceType: NonNullable<RunInstancesCommandInput["InstanceType"]>;
@@ -55,8 +78,14 @@ type RelayOrchestratorOptions = {
   getPeers: () => ActivePeer[];
 };
 
+type RelayLeaseState = {
+  activeLeaseIds: Set<string>;
+  lastReleasedAt: number | null;
+};
+
 export class RelayOrchestrator {
   private readonly inflightEnsures = new Map<SupportedCountryCode, Promise<EnsureRelayResponse>>();
+  private readonly leaseState = new Map<SupportedCountryCode, RelayLeaseState>();
 
   constructor(private readonly options: RelayOrchestratorOptions) {}
 
@@ -87,6 +116,128 @@ export class RelayOrchestrator {
     } finally {
       this.inflightEnsures.delete(countryCode);
     }
+  }
+
+  acquireLease(countryCodeInput: string, leaseId: string): void {
+    const countryCode = normalizeCountryCode(countryCodeInput);
+    if (!countryCode) {
+      return;
+    }
+
+    const state = this.getLeaseState(countryCode);
+    state.activeLeaseIds.add(leaseId);
+    state.lastReleasedAt = null;
+  }
+
+  releaseLease(request: ReleaseRelayRequest): ReleaseRelayResponse {
+    const countryCode = normalizeCountryCode(request.countryCode);
+    if (!countryCode) {
+      throw new Error(`Unsupported relay country \"${request.countryCode}\".`);
+    }
+
+    const state = this.getLeaseState(countryCode);
+    state.activeLeaseIds.delete(request.leaseId);
+
+    if (state.activeLeaseIds.size === 0) {
+      state.lastReleasedAt = Date.now();
+      return {
+        ok: true,
+        status: "idle",
+        countryCode,
+        message: `No active relay leases remain for ${countryCode}. Idle cleanup timer is now running.`,
+        activeLeaseCount: 0,
+      };
+    }
+
+    return {
+      ok: true,
+      status: "released",
+      countryCode,
+      message: `Released one relay lease for ${countryCode}.`,
+      activeLeaseCount: state.activeLeaseIds.size,
+    };
+  }
+
+  async cleanupIdleRelays(): Promise<RelayCleanupAction[]> {
+    if (!this.isEnabled()) {
+      return [];
+    }
+
+    const actions: RelayCleanupAction[] = [];
+    const cleanupMode = this.getCleanupMode();
+    const idleTimeoutMs = this.getIdleTimeoutMs();
+
+    for (const countryCode of this.getSupportedCountries()) {
+      const state = this.getLeaseState(countryCode);
+      if (state.activeLeaseIds.size > 0 || state.lastReleasedAt === null) {
+        continue;
+      }
+
+      if (Date.now() - state.lastReleasedAt < idleTimeoutMs) {
+        continue;
+      }
+
+      const launchConfig = this.loadLaunchConfig(countryCode);
+      const ec2Client = new EC2Client({ region: launchConfig.region });
+      const instances = await this.findManagedInstances(ec2Client, countryCode);
+      const desiredCapacity = this.getDesiredCapacity(countryCode);
+      const candidates = instances.slice(desiredCapacity);
+
+      if (candidates.length === 0) {
+        state.lastReleasedAt = null;
+        actions.push({
+          countryCode,
+          region: launchConfig.region,
+          action: "skipped",
+          instanceIds: [],
+          message: `No extra managed ${countryCode} relay instances are eligible for cleanup.`,
+        });
+        continue;
+      }
+
+      const candidateIds = candidates.flatMap((instance) => (instance.InstanceId ? [instance.InstanceId] : []));
+      if (candidateIds.length === 0) {
+        continue;
+      }
+
+      if (cleanupMode === "terminate") {
+        await ec2Client.send(new TerminateInstancesCommand({ InstanceIds: candidateIds }));
+        actions.push({
+          countryCode,
+          region: launchConfig.region,
+          action: "terminated",
+          instanceIds: candidateIds,
+          message: `Terminated idle managed ${countryCode} relay instances.`,
+        });
+      } else {
+        const stoppableIds = candidates
+          .filter((instance) => instance.InstanceId && instance.State?.Name === "running")
+          .flatMap((instance) => (instance.InstanceId ? [instance.InstanceId] : []));
+
+        if (stoppableIds.length === 0) {
+          actions.push({
+            countryCode,
+            region: launchConfig.region,
+            action: "skipped",
+            instanceIds: candidateIds,
+            message: `Managed ${countryCode} relay instances were already stopped or not stoppable.`,
+          });
+        } else {
+          await ec2Client.send(new StopInstancesCommand({ InstanceIds: stoppableIds }));
+          actions.push({
+            countryCode,
+            region: launchConfig.region,
+            action: "stopped",
+            instanceIds: stoppableIds,
+            message: `Stopped idle managed ${countryCode} relay instances.`,
+          });
+        }
+      }
+
+      state.lastReleasedAt = null;
+    }
+
+    return actions;
   }
 
   private async ensureRelayInternal(countryCode: SupportedCountryCode, requestedWaitMs?: number): Promise<EnsureRelayResponse> {
@@ -180,7 +331,25 @@ export class RelayOrchestrator {
     );
   }
 
+  private getLeaseState(countryCode: SupportedCountryCode): RelayLeaseState {
+    const existing = this.leaseState.get(countryCode);
+    if (existing) {
+      return existing;
+    }
+
+    const created: RelayLeaseState = {
+      activeLeaseIds: new Set<string>(),
+      lastReleasedAt: null,
+    };
+    this.leaseState.set(countryCode, created);
+    return created;
+  }
+
   private async findManagedInstance(ec2Client: EC2Client, countryCode: SupportedCountryCode): Promise<Instance | null> {
+    return (await this.findManagedInstances(ec2Client, countryCode))[0] ?? null;
+  }
+
+  private async findManagedInstances(ec2Client: EC2Client, countryCode: SupportedCountryCode): Promise<Instance[]> {
     const filters: Filter[] = [
       { Name: "tag:Project", Values: ["relay-mesh"] },
       { Name: "tag:CountryCode", Values: [countryCode] },
@@ -188,13 +357,11 @@ export class RelayOrchestrator {
     ];
 
     const response = await ec2Client.send(new DescribeInstancesCommand({ Filters: filters }));
-    const instances = (response.Reservations ?? []).flatMap((reservation) => reservation.Instances ?? []);
-
-    return instances.sort((left, right) => {
+    return (response.Reservations ?? []).flatMap((reservation) => reservation.Instances ?? []).sort((left, right) => {
       const leftTime = left.LaunchTime?.getTime() ?? 0;
       const rightTime = right.LaunchTime?.getTime() ?? 0;
       return rightTime - leftTime;
-    })[0] ?? null;
+    });
   }
 
   private buildRunInstancesInput(countryCode: SupportedCountryCode, launchConfig: LaunchConfig): RunInstancesCommandInput {
@@ -297,6 +464,20 @@ export class RelayOrchestrator {
     }
 
     return null;
+  }
+
+  private getDesiredCapacity(countryCode: SupportedCountryCode): number {
+    const configured = Number(process.env[`RELAY_AWS_DESIRED_CAPACITY_${countryCode}`] ?? process.env.RELAY_AWS_DESIRED_CAPACITY_DEFAULT ?? 0);
+    return Number.isFinite(configured) ? Math.max(0, Math.floor(configured)) : 0;
+  }
+
+  private getIdleTimeoutMs(): number {
+    const configured = Number(process.env.RELAY_AWS_IDLE_TIMEOUT_MS ?? 600_000);
+    return Number.isFinite(configured) ? Math.max(60_000, configured) : 600_000;
+  }
+
+  private getCleanupMode(): "stop" | "terminate" {
+    return process.env.RELAY_AWS_CLEANUP_MODE === "terminate" ? "terminate" : "stop";
   }
 }
 

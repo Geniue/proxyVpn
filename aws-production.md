@@ -52,6 +52,27 @@ Possible responses:
 - `status: "ready"` when a relay is already registered in `/peers`
 - `status: "provisioning"` when an instance was found or launched but has not registered yet
 
+The signaling server also supports relay release tracking:
+
+```http
+POST /relay/release
+```
+
+Example body:
+
+```json
+{
+	"countryCode": "AE",
+	"leaseId": "<requester-peer-id>"
+}
+```
+
+The extension now calls:
+- `POST /relay/ensure` automatically before matchmaking
+- `POST /relay/release` automatically on disconnect
+
+This allows the orchestrator to manage idle country nodes based on actual session usage instead of immediate teardown.
+
 ## Relay Orchestrator Environment
 Set these on the signaling server when you want it to launch relays automatically:
 
@@ -61,6 +82,24 @@ RELAY_AWS_SIGNALING_URL=http://<public-signaling-host>:3000
 RELAY_AWS_GIT_REPO_URL=https://github.com/Geniue/proxyVpn.git
 RELAY_AWS_DEFAULT_INSTANCE_TYPE=t3.micro
 RELAY_AWS_ENSURE_WAIT_MS=30000
+RELAY_AWS_IDLE_TIMEOUT_MS=600000
+RELAY_AWS_CLEANUP_INTERVAL_MS=60000
+RELAY_AWS_CLEANUP_MODE=stop
+RELAY_AWS_DESIRED_CAPACITY_DEFAULT=0
+```
+
+Idle cleanup behavior:
+- `RELAY_AWS_IDLE_TIMEOUT_MS`: how long a country can stay unused after its last release before cleanup
+- `RELAY_AWS_CLEANUP_INTERVAL_MS`: how often the signaling server scans for idle managed relays
+- `RELAY_AWS_CLEANUP_MODE=stop|terminate`: whether idle relays are stopped or terminated
+- `RELAY_AWS_DESIRED_CAPACITY_DEFAULT`: baseline number of managed nodes to keep per country even when idle
+
+Per-country warm-pool overrides are supported:
+
+```powershell
+RELAY_AWS_DESIRED_CAPACITY_AE=1
+RELAY_AWS_DESIRED_CAPACITY_DE=1
+RELAY_AWS_DESIRED_CAPACITY_SG=0
 ```
 
 Per-country configuration supports either a launch template or raw EC2 parameters.

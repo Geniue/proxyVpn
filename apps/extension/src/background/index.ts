@@ -50,6 +50,13 @@ type RelayAcceptedPayload = {
   candidatePeerId: string;
 };
 
+type EnsureRelayResponse = {
+  ok: boolean;
+  status?: "ready" | "provisioning";
+  message?: string;
+  error?: string;
+};
+
 const STORAGE_KEY = "relay-mesh-session";
 const SIGNALING_SERVER_URL = __RELAY_MESH_SIGNALING_URL__ || "http://localhost:4000";
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -172,6 +179,10 @@ function notifyClients(message: VPNEventMessage): void {
   chrome.runtime.sendMessage(message, () => {
     void chrome.runtime.lastError;
   });
+}
+
+function buildSignalingEndpoint(path: string): string {
+  return new URL(path, `${SIGNALING_SERVER_URL}/`).toString();
 }
 
 async function setSignalingState(signalingState: SignalingState, message?: string): Promise<void> {
@@ -384,6 +395,45 @@ function resolveTransportRoute(candidate: MatchCandidate): {
   };
 }
 
+async function ensureRelayCapacity(countryCode: string): Promise<void> {
+  const response = await fetch(buildSignalingEndpoint("relay/ensure"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      countryCode,
+      waitMs: 30_000,
+    }),
+  });
+
+  const payload = (await response.json()) as EnsureRelayResponse;
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error ?? `Failed to ensure relay capacity in ${countryCode}.`);
+  }
+
+  if (payload.status === "provisioning") {
+    throw new Error(payload.message ?? `A managed ${countryCode} relay is starting. Try connecting again shortly.`);
+  }
+}
+
+async function releaseRelayCapacity(countryCode: string | null, leaseId: string): Promise<void> {
+  if (!countryCode) {
+    return;
+  }
+
+  await fetch(buildSignalingEndpoint("relay/release"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      countryCode,
+      leaseId,
+    }),
+  });
+}
+
 async function requestCandidatePeer(targetCountryCode: string): Promise<MatchCandidate> {
   const session = await loadSession();
 
@@ -437,6 +487,7 @@ async function requestCandidatePeer(targetCountryCode: string): Promise<MatchCan
 
 async function handleConnect(countryCode: string): Promise<VPNResponse> {
   try {
+    await ensureRelayCapacity(countryCode);
     const candidate = await requestCandidatePeer(countryCode);
     const latencyMs = estimateLatencyForCandidate(candidate);
     const transportRoute = resolveTransportRoute(candidate);
@@ -486,8 +537,9 @@ async function handleConnect(countryCode: string): Promise<VPNResponse> {
 
 async function handleDisconnect(): Promise<VPNResponse> {
   try {
-    await clearProxy();
     const session = await loadSession();
+    await clearProxy();
+    await releaseRelayCapacity(session.countryCode, session.peerId).catch(() => undefined);
     await saveSession({
       countryCode: null,
       advertisedCountryCode: session.advertisedCountryCode,

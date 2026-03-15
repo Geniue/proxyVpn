@@ -73,6 +73,36 @@ app.post("/relay/ensure", async (request, response) => {
   }
 });
 
+app.post("/relay/release", (request, response) => {
+  const countryInput =
+    typeof request.body?.countryCode === "string"
+      ? request.body.countryCode
+      : typeof request.body?.country === "string"
+        ? request.body.country
+        : typeof request.query.country === "string"
+          ? request.query.country
+          : null;
+  const leaseId =
+    typeof request.body?.leaseId === "string"
+      ? request.body.leaseId
+      : typeof request.query.leaseId === "string"
+        ? request.query.leaseId
+        : null;
+
+  if (!countryInput || !leaseId) {
+    response.status(400).json({ ok: false, error: "countryCode and leaseId are required." });
+    return;
+  }
+
+  try {
+    const result = relayOrchestrator.releaseLease({ countryCode: countryInput, leaseId });
+    response.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to release relay capacity.";
+    response.status(400).json({ ok: false, error: message });
+  }
+});
+
 const io = new Server(httpServer, {
   cors: {
     origin: true,
@@ -198,6 +228,7 @@ io.on("connection", (socket) => {
     }
 
     console.info(`[Relay Accepted] session=${acceptedSession.sessionId} candidate=${acceptedSession.candidatePeerId}`);
+    relayOrchestrator.acquireLease(acceptedSession.targetCountryCode, acceptedSession.requesterPeerId);
     io.to(acceptedSession.requesterSocketId).emit("relay:accepted", {
       sessionId: acceptedSession.sessionId,
       candidatePeerId: acceptedSession.candidatePeerId,
@@ -222,6 +253,17 @@ io.on("connection", (socket) => {
 
     console.info(`[Peer Disconnected] peerId=${peer.peerId} country=${peer.countryCode} reason=${reason}`);
     for (const session of removedSessions) {
+      if (session.state === "accepted") {
+        try {
+          const release = relayOrchestrator.releaseLease({
+            countryCode: session.targetCountryCode,
+            leaseId: session.requesterPeerId,
+          });
+          console.info(`[Relay Released] country=${release.countryCode} leases=${release.activeLeaseCount} reason=peer-disconnected`);
+        } catch {
+          // Ignore release errors during disconnect cleanup.
+        }
+      }
       console.info(`[Relay Cleared] session=${session.sessionId} reason=peer-disconnected`);
     }
   });
@@ -242,6 +284,14 @@ setInterval(() => {
     console.info(`[Relay Expired] session=${session.sessionId} requester=${session.requesterPeerId} candidate=${session.candidatePeerId}`);
   }
 }, 5_000);
+
+setInterval(() => {
+  void relayOrchestrator.cleanupIdleRelays().then((actions) => {
+    for (const action of actions) {
+      console.info(`[Relay Cleanup] country=${action.countryCode} action=${action.action} instances=${action.instanceIds.join(",") || "none"}`);
+    }
+  });
+}, Number(process.env.RELAY_AWS_CLEANUP_INTERVAL_MS ?? 60_000));
 
 httpServer.listen(PORT, () => {
   console.info(`Relay Mesh signaling server listening on http://localhost:${PORT}`);
