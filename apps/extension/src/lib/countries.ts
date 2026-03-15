@@ -4,6 +4,7 @@ export const COUNTRIES: CountryOption[] = [
   { code: "US", label: "United States", flag: "US", region: "Virginia relay cluster" },
   { code: "AE", label: "United Arab Emirates", flag: "AE", region: "Dubai relay cluster" },
   { code: "DE", label: "Germany", flag: "DE", region: "Frankfurt relay cluster" },
+  { code: "SE", label: "Sweden", flag: "SE", region: "Stockholm relay cluster" },
   { code: "EG", label: "Egypt", flag: "EG", region: "Cairo relay cluster" },
   { code: "SG", label: "Singapore", flag: "SG", region: "Singapore relay cluster" },
   { code: "TR", label: "Turkey", flag: "TR", region: "Istanbul relay cluster" },
