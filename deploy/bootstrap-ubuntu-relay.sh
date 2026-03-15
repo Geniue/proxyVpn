@@ -43,7 +43,10 @@ if command -v apt-get >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
   apt-get install -y nodejs
 elif command -v dnf >/dev/null 2>&1; then
-  dnf install -y ca-certificates curl git
+  dnf install -y ca-certificates git
+  if ! command -v curl >/dev/null 2>&1; then
+    dnf install -y curl-minimal
+  fi
   curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash -
   dnf install -y nodejs
 else

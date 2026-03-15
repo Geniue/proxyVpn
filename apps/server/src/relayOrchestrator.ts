@@ -420,7 +420,7 @@ export class RelayOrchestrator {
     return [
       "#!/bin/bash",
       "set -euxo pipefail",
-      "if command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y ca-certificates curl git; elif command -v dnf >/dev/null 2>&1; then dnf install -y ca-certificates curl git; fi",
+      "if command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y ca-certificates curl git; elif command -v dnf >/dev/null 2>&1; then dnf install -y ca-certificates git && (command -v curl >/dev/null 2>&1 || dnf install -y curl-minimal); fi",
       "PRIMARY_USER=root",
       "if id -u ubuntu >/dev/null 2>&1; then PRIMARY_USER=ubuntu; elif id -u ec2-user >/dev/null 2>&1; then PRIMARY_USER=ec2-user; fi",
       "PRIMARY_HOME=$(getent passwd \"$PRIMARY_USER\" | cut -d: -f6)",
