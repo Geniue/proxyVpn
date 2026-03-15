@@ -116,11 +116,14 @@ Raw EC2 option:
 ```powershell
 RELAY_AWS_AMI_ID_AE=ami-xxxxxxxxxxxxxxxxx
 RELAY_AWS_SUBNET_ID_AE=subnet-xxxxxxxxxxxxxxxxx
+RELAY_AWS_SUBNET_IDS_AE=subnet-xxxxxxxxxxxxxxxxx,subnet-yyyyyyyyyyyyyyyyy
 RELAY_AWS_SECURITY_GROUP_IDS_AE=sg-xxxxxxxxxxxxxxxxx
 RELAY_AWS_KEY_NAME_AE=relay-mesh
 RELAY_AWS_INSTANCE_PROFILE_ARN_AE=arn:aws:iam::<account-id>:instance-profile/<profile>
 RELAY_AWS_REGION_AE=me-central-1
 ```
+
+`RELAY_AWS_SUBNET_IDS_<COUNTRY>` is optional but recommended for regions where a single availability zone can be impaired. When present, the orchestrator tries each subnet in order until one launch succeeds.
 
 The orchestrator bootstraps new nodes with the repo's relay bootstrap script, waits for the relay-agent to self-register into signaling, and then makes that country available for matching.
 

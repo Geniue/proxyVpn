@@ -68,7 +68,7 @@ type LaunchConfig = {
   launchTemplateId?: string;
   launchTemplateName?: string;
   imageId?: string;
-  subnetId?: string;
+  subnetIds: string[];
   securityGroupIds: string[];
   keyName?: string;
   iamInstanceProfileArn?: string;
@@ -294,8 +294,7 @@ export class RelayOrchestrator {
       };
     }
 
-    const runInput = this.buildRunInstancesInput(countryCode, launchConfig);
-    const launched = await ec2Client.send(new RunInstancesCommand(runInput));
+    const launched = await this.launchManagedInstance(ec2Client, countryCode, launchConfig);
     const instanceIds = (launched.Instances ?? []).flatMap((instance) => (instance.InstanceId ? [instance.InstanceId] : []));
     const relay = await this.waitForRelayRegistration(countryCode, requestedWaitMs);
 
@@ -364,7 +363,43 @@ export class RelayOrchestrator {
     });
   }
 
-  private buildRunInstancesInput(countryCode: SupportedCountryCode, launchConfig: LaunchConfig): RunInstancesCommandInput {
+  private async launchManagedInstance(
+    ec2Client: EC2Client,
+    countryCode: SupportedCountryCode,
+    launchConfig: LaunchConfig,
+  ): Promise<{ Instances?: Instance[] }> {
+    if (launchConfig.launchTemplateId || launchConfig.launchTemplateName) {
+      const runInput = this.buildRunInstancesInput(countryCode, launchConfig);
+      return ec2Client.send(new RunInstancesCommand(runInput));
+    }
+
+    if (!launchConfig.imageId || launchConfig.subnetIds.length === 0 || launchConfig.securityGroupIds.length === 0) {
+      throw new Error(
+        `Missing AWS launch configuration for ${countryCode}. Configure a launch template or set RELAY_AWS_AMI_ID_${countryCode}, RELAY_AWS_SUBNET_ID_${countryCode} or RELAY_AWS_SUBNET_IDS_${countryCode}, and RELAY_AWS_SECURITY_GROUP_IDS_${countryCode}.`,
+      );
+    }
+
+    const launchErrors: string[] = [];
+
+    for (const subnetId of launchConfig.subnetIds) {
+      try {
+        const runInput = this.buildRunInstancesInput(countryCode, launchConfig, subnetId);
+        return await ec2Client.send(new RunInstancesCommand(runInput));
+      } catch (error) {
+        launchErrors.push(`${subnetId}: ${formatLaunchError(error)}`);
+      }
+    }
+
+    throw new Error(
+      `Failed to launch managed ${countryCode} relay across configured subnets. ${launchErrors.join(" | ")}`,
+    );
+  }
+
+  private buildRunInstancesInput(
+    countryCode: SupportedCountryCode,
+    launchConfig: LaunchConfig,
+    subnetIdOverride?: string,
+  ): RunInstancesCommandInput {
     const tags: Tag[] = [
       { Key: "Name", Value: `relay-mesh-${countryCode.toLowerCase()}` },
       { Key: "Project", Value: "relay-mesh" },
@@ -393,14 +428,16 @@ export class RelayOrchestrator {
       return runInput;
     }
 
-    if (!launchConfig.imageId || !launchConfig.subnetId || launchConfig.securityGroupIds.length === 0) {
+    const selectedSubnetId = subnetIdOverride ?? launchConfig.subnetIds[0];
+
+    if (!launchConfig.imageId || !selectedSubnetId || launchConfig.securityGroupIds.length === 0) {
       throw new Error(
-        `Missing AWS launch configuration for ${countryCode}. Configure a launch template or set RELAY_AWS_AMI_ID_${countryCode}, RELAY_AWS_SUBNET_ID_${countryCode}, and RELAY_AWS_SECURITY_GROUP_IDS_${countryCode}.`,
+        `Missing AWS launch configuration for ${countryCode}. Configure a launch template or set RELAY_AWS_AMI_ID_${countryCode}, RELAY_AWS_SUBNET_ID_${countryCode} or RELAY_AWS_SUBNET_IDS_${countryCode}, and RELAY_AWS_SECURITY_GROUP_IDS_${countryCode}.`,
       );
     }
 
     runInput.ImageId = launchConfig.imageId;
-    runInput.SubnetId = launchConfig.subnetId;
+    runInput.SubnetId = selectedSubnetId;
     runInput.SecurityGroupIds = launchConfig.securityGroupIds;
 
     if (launchConfig.keyName) {
@@ -453,7 +490,9 @@ export class RelayOrchestrator {
       launchTemplateId: process.env[`RELAY_AWS_LAUNCH_TEMPLATE_ID_${countryCode}`],
       launchTemplateName: process.env[`RELAY_AWS_LAUNCH_TEMPLATE_NAME_${countryCode}`],
       imageId: process.env[`RELAY_AWS_AMI_ID_${countryCode}`],
-      subnetId: process.env[`RELAY_AWS_SUBNET_ID_${countryCode}`],
+      subnetIds: parseCsv(process.env[`RELAY_AWS_SUBNET_IDS_${countryCode}`]).length > 0
+        ? parseCsv(process.env[`RELAY_AWS_SUBNET_IDS_${countryCode}`])
+        : parseCsv(process.env[`RELAY_AWS_SUBNET_ID_${countryCode}`]),
       securityGroupIds: parseCsv(process.env[`RELAY_AWS_SECURITY_GROUP_IDS_${countryCode}`]),
       keyName: process.env[`RELAY_AWS_KEY_NAME_${countryCode}`],
       iamInstanceProfileArn: process.env[`RELAY_AWS_INSTANCE_PROFILE_ARN_${countryCode}`],
@@ -506,4 +545,12 @@ function parseCsv(value: string | undefined): string[] {
 function defaultEnsureWaitMs(): number {
   const configured = Number(process.env.RELAY_AWS_ENSURE_WAIT_MS ?? 30_000);
   return Number.isFinite(configured) ? configured : 30_000;
+}
+
+function formatLaunchError(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return String(error);
 }
