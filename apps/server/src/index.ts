@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import { startDevProxyServer } from "./devProxyServer.js";
 import { PeerRegistry } from "./peerRegistry.js";
+import { RelayOrchestrator } from "./relayOrchestrator.js";
 import { RelaySessionRegistry } from "./relaySessions.js";
 import type {
   MatchmakeAcknowledgement,
@@ -24,6 +25,9 @@ const app = express();
 const httpServer = createServer(app);
 const registry = new PeerRegistry();
 const relaySessions = new RelaySessionRegistry();
+const relayOrchestrator = new RelayOrchestrator({
+  getPeers: () => registry.list(),
+});
 const devProxyServer = startDevProxyServer(DEV_PROXY_PORT);
 
 app.use(cors());
@@ -35,6 +39,38 @@ app.get("/health", (_request, response) => {
 
 app.get("/peers", (_request, response) => {
   response.json({ peers: registry.list() });
+});
+
+app.post("/relay/ensure", async (request, response) => {
+  const countryInput =
+    typeof request.query.country === "string"
+      ? request.query.country
+      : typeof request.body?.countryCode === "string"
+        ? request.body.countryCode
+        : typeof request.body?.country === "string"
+          ? request.body.country
+          : null;
+
+  if (!countryInput) {
+    response.status(400).json({ ok: false, error: "countryCode is required." });
+    return;
+  }
+
+  const waitMs =
+    typeof request.body?.waitMs === "number"
+      ? request.body.waitMs
+      : typeof request.query.waitMs === "string"
+        ? Number(request.query.waitMs)
+        : undefined;
+
+  try {
+    const result = await relayOrchestrator.ensureRelay({ countryCode: countryInput, waitMs });
+    response.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to ensure relay capacity.";
+    const statusCode = message.includes("required") || message.includes("Unsupported") || message.includes("disabled") ? 400 : 500;
+    response.status(statusCode).json({ ok: false, error: message });
+  }
 });
 
 const io = new Server(httpServer, {

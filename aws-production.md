@@ -27,6 +27,64 @@ Recommended first production set:
 Important AWS constraint:
 - AWS does not currently offer a Turkey region, so `TR` cannot be a true Turkey exit on AWS alone. For Turkey you need a non-AWS VPS/provider physically located in Turkey.
 
+## Relay Orchestrator API
+The signaling server now supports an on-demand capacity endpoint:
+
+```http
+POST /relay/ensure?country=AE
+```
+
+Request body is also supported:
+
+```json
+{
+	"countryCode": "AE",
+	"waitMs": 30000
+}
+```
+
+Behavior:
+- If a live `peer-agent` relay already exists for the country, it returns that relay immediately.
+- If a managed EC2 instance for that country already exists but is still booting, it returns `provisioning`.
+- If no relay exists, it launches one through AWS EC2 and optionally waits for registration.
+
+Possible responses:
+- `status: "ready"` when a relay is already registered in `/peers`
+- `status: "provisioning"` when an instance was found or launched but has not registered yet
+
+## Relay Orchestrator Environment
+Set these on the signaling server when you want it to launch relays automatically:
+
+```powershell
+RELAY_AWS_ENABLED=true
+RELAY_AWS_SIGNALING_URL=http://<public-signaling-host>:3000
+RELAY_AWS_GIT_REPO_URL=https://github.com/Geniue/proxyVpn.git
+RELAY_AWS_DEFAULT_INSTANCE_TYPE=t3.micro
+RELAY_AWS_ENSURE_WAIT_MS=30000
+```
+
+Per-country configuration supports either a launch template or raw EC2 parameters.
+
+Launch template option:
+
+```powershell
+RELAY_AWS_LAUNCH_TEMPLATE_ID_AE=lt-xxxxxxxxxxxxxxxxx
+RELAY_AWS_REGION_AE=me-central-1
+```
+
+Raw EC2 option:
+
+```powershell
+RELAY_AWS_AMI_ID_AE=ami-xxxxxxxxxxxxxxxxx
+RELAY_AWS_SUBNET_ID_AE=subnet-xxxxxxxxxxxxxxxxx
+RELAY_AWS_SECURITY_GROUP_IDS_AE=sg-xxxxxxxxxxxxxxxxx
+RELAY_AWS_KEY_NAME_AE=relay-mesh
+RELAY_AWS_INSTANCE_PROFILE_ARN_AE=arn:aws:iam::<account-id>:instance-profile/<profile>
+RELAY_AWS_REGION_AE=me-central-1
+```
+
+The orchestrator bootstraps new nodes with the repo's relay bootstrap script, waits for the relay-agent to self-register into signaling, and then makes that country available for matching.
+
 ## Relay-Agent Environment
 Use these environment variables on each EC2 instance:
 
