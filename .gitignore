@@ -1,4 +1,6 @@
 node_modules/
 apps/extension/dist/
+apps/server/dist/
+apps/relay-agent/dist/
 *.log
 *.pem
